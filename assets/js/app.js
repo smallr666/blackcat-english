@@ -115,16 +115,16 @@ window.BCE = window.BCE || {};
     const latest = list[0];
     const M = BCE.mascot.name;
     const posters = list.map(s => {
-      const words = s.seasons.reduce((a, x) => a + (x.words || 0), 0);
-      const chunks = s.seasons.reduce((a, x) => a + (x.chunks || 0), 0);
-      const eps = s.seasons.reduce((a, x) => a + (x.episodes || 0), 0);
-      const scope = s.seasons.length > 1 ? `${s.seasons.length} 季　${eps} 集` : (eps > 1 ? `${eps} 集` : s.kind);
+      const planned = s.seasons.reduce((a, x) => a + (x.episodes || 0), 0);
+      const total = s.totalSeasons || s.seasons.length;
+      const scope = total > 1 ? `共 ${total} 季` : (planned > 1 ? `共 ${planned} 集` : s.kind);
+      const cover = s.cover ? ` has-cover" style="--cover:url('${esc(s.cover)}')` : "";
       return `
-      <a class="poster tone-${esc(s.tone || "pine")}" href="${seasonHref(s, s.seasons[0], "words")}">
+      <a class="poster tone-${esc(s.tone || "pine")}${cover}" href="${seasonHref(s, s.seasons[0], "words")}">
         <span class="poster-kind">${esc(s.kind)}｜${esc(s.year)}</span>
         <span class="poster-title" lang="en">${esc(s.title)}</span>
         <span class="poster-zh">${esc(s.zh)}</span>
-        <span class="poster-meta">${esc(scope)}　${words} 個單字　${chunks} 個語塊</span>
+        <span class="poster-meta">${esc(scope)}<span data-counts="${esc(s.id)}"></span></span>
       </a>`;
     }).join("");
 
@@ -186,10 +186,35 @@ window.BCE = window.BCE || {};
 
     BCE.mascot.watch($(".onyx-hero"));
     BCE.mascot.watch($(".onyx-meet"));
+    fillCounts(list);
     if (!BCE.store.pref("met")) {
       BCE.store.pref("met", true);
       setTimeout(() => BCE.mascot.react("hello", $(".onyx-hero")), 1800);
     }
+  }
+
+  /* 海報上的單字／語塊數量：自動從資料檔計算 */
+  function fillCounts(list) {
+    list.forEach(series => {
+      Promise.all(series.seasons.map(x => BCE.loadSeason(x.file).catch(() => null))).then(all => {
+        let w = 0, c = 0, eps = 0;
+        all.filter(Boolean).forEach(d => d.episodes.forEach(e => {
+          eps++; w += (e.words || []).length; c += (e.chunks || []).length;
+        }));
+        const el = document.querySelector(`[data-counts="${series.id}"]`);
+        if (!el) return;
+        const planned = series.seasons.reduce((a, x) => a + (x.episodes || 0), 0);
+        const progress = planned > 1 ? `　已上架 ${eps} 集` : "";
+        el.textContent = `${progress}　${w} 單字　${c} 語塊`;
+      });
+    });
+  }
+
+  /* Netflix 連結：作品頁、單集、從某個時間點開始 */
+  function nfWatch(ep, t) {
+    if (!ep || !ep.netflixId) return "";
+    const sec = t ? Math.max(0, toSec(t) - 2) : 0;
+    return `https://www.netflix.com/watch/${encodeURIComponent(ep.netflixId)}${sec ? "?t=" + sec : ""}`;
   }
 
   /* ---------- 季別頁 ---------- */
@@ -211,34 +236,56 @@ window.BCE = window.BCE || {};
       });
       return { ...ep, items, chapters };
     });
-    const allItems = eps.flatMap(e => e.items);
+    const epKey = "ep:" + data.file;
+    let pick = BCE.store.pref(epKey);
+    if (pick !== "all" && !eps.some(e => e.id === pick)) pick = eps[eps.length - 1].id;
+    const visible = pick === "all" ? eps : eps.filter(e => e.id === pick);
+    const allItems = visible.flatMap(e => e.items);
     const hideLearned = BCE.store.pref("hideLearned") === true;
     const sameSeason = current && current.file === data.file;
-    current = { series, season, data, file: data.file, mode, eps, allItems, itemMap };
+    current = { series, season, data, file: data.file, mode, eps, allItems, itemMap, pick };
 
     const totalWords = data.episodes.reduce((a, e) => a + (e.words || []).length, 0);
     const totalChunks = data.episodes.reduce((a, e) => a + (e.chunks || []).length, 0);
     const seasonNote = BCE.store.get(data.file, "_season").note || "";
-    const runtime = multi ? `共 ${data.episodes.length} 集` : (data.episodes[0].runtime || "");
+    const runtime = (season.episodes || data.episodes.length) > 1 ? `${season.label}　共 ${season.episodes || data.episodes.length} 集` : (data.episodes[0].runtime || "");
 
-    const seasonTabs = series.seasons.length > 1 ? `
+    const totalSeasons = series.totalSeasons || series.seasons.length;
+    const soonSeasons = totalSeasons > series.seasons.length
+      ? `<span class="soon">第 ${series.seasons.length + 1}${totalSeasons > series.seasons.length + 1 ? "–" + totalSeasons : ""} 季整理中</span>` : "";
+    const seasonTabs = totalSeasons > 1 ? `
       <nav class="season-tabs" aria-label="季別">
         ${series.seasons.map(x => `<a href="${seasonHref(series, x, mode)}" ${x.id === season.id ? 'aria-current="page"' : ""}>${esc(x.label)}</a>`).join("")}
+        ${soonSeasons}
       </nav>` : "";
 
-    const chapterOpts = ep => ep.chapters.filter(c => c.items.length)
-      .map(c => `<option value="${c.key}">${multi ? "E" + ep.no + "　" : ""}${esc(c.t)}　${esc(c.zh || c.en || "")}</option>`).join("");
-    const jumpOptions = multi
-      ? eps.filter(e => e.items.length).map(e => `<optgroup label="E${e.no}　${esc(e.zh || e.title)}">${chapterOpts(e)}</optgroup>`).join("")
-      : chapterOpts(eps[0]);
+    const plannedEps = Math.max(season.episodes || 0, data.episodes.length);
+    const epStrip = plannedEps > 1 ? `
+      <div class="ep-strip" role="group" aria-label="選擇集數">
+        ${data.episodes.length > 1 ? `<button type="button" data-ep-pick="all" aria-pressed="${pick === "all"}"><b>全季</b><span>${data.episodes.length} 集合併</span></button>` : ""}
+        ${eps.map(e => {
+          const ids = [...(e.words || []), ...(e.chunks || [])].map(x => x.id);
+          const pct = ids.length ? Math.round(BCE.store.learnedCount(data.file, ids) / ids.length * 100) : 0;
+          return `<button type="button" data-ep-pick="${esc(e.id)}" aria-pressed="${pick === e.id}">
+            <b lang="en">E${esc(e.no)}</b><span>${esc(e.zh || e.title)}</span><i class="ep-bar" style="--p:${pct}%" aria-label="已學會 ${pct}%"></i></button>`;
+        }).join("")}
+        ${plannedEps > data.episodes.length ? `<span class="soon">E${data.episodes.length + 1}${plannedEps > data.episodes.length + 1 ? "–E" + plannedEps : ""} 整理中</span>` : ""}
+      </div>` : "";
 
-    const body = eps.filter(e => e.items.length).map(ep => `
+    const chapterOpts = ep => ep.chapters.filter(c => c.items.length)
+      .map(c => `<option value="${c.key}">${multiVisible ? "E" + ep.no + "　" : ""}${esc(c.t)}　${esc(c.zh || c.en || "")}</option>`).join("");
+    const multiVisible = visible.length > 1;
+    const jumpOptions = multiVisible
+      ? visible.filter(e => e.items.length).map(e => `<optgroup label="E${e.no}　${esc(e.zh || e.title)}">${chapterOpts(e)}</optgroup>`).join("")
+      : chapterOpts(visible[0]);
+
+    const body = visible.filter(e => e.items.length).map(ep => `
       <section class="episode" id="${esc(ep.id)}">
-        ${multi ? `
+        ${plannedEps > 1 ? `
         <header class="episode-head">
           <span class="ep-no" lang="en">E${esc(ep.no)}</span>
           <h2 lang="en">${esc(ep.title)}</h2>
-          <p>${esc(ep.zh || "")}${ep.runtime ? "　" + esc(ep.runtime) : ""}</p>
+          <p>${esc(ep.zh || "")}${ep.runtime ? "　" + esc(ep.runtime) : ""}${ep.netflixId ? `　<a href="${nfWatch(ep)}" target="_blank" rel="noopener">在 Netflix 看這一集</a>` : ""}</p>
         </header>` : ""}
         ${ep.chapters.filter(c => c.items.length).map(c => `
         <section class="chapter" id="${c.key}" data-ep="${esc(ep.id)}" data-ch="${c.i}">
@@ -246,7 +293,7 @@ window.BCE = window.BCE || {};
             <span class="chapter-time">${esc(c.t)}</span>
             <h3>${c.en ? `<span lang="en">${esc(c.en)}</span>` : ""}${c.zh ? `<small>${esc(c.zh)}</small>` : ""}</h3>
           </header>
-          ${c.items.map(it => isChunks ? chunkCard(data.file, it) : wordCard(data.file, it)).join("")}
+          ${c.items.map(it => isChunks ? chunkCard(data.file, it, ep) : wordCard(data.file, it, ep)).join("")}
         </section>`).join("")}
       </section>`).join("");
 
@@ -260,6 +307,8 @@ window.BCE = window.BCE || {};
         ${seasonTabs}
         <p class="show-blurb">${esc(data.blurb || series.blurb || "")}</p>
         <p class="show-facts">${esc(series.year)} 年　${esc(runtime)}　難度 ${esc(series.level || "")}</p>
+        ${series.netflix ? `<a class="nf-link" href="${esc(series.netflix)}" target="_blank" rel="noopener">在 Netflix 觀看《${esc(series.zh)}》</a>` : ""}
+        ${epStrip}
         <details class="show-note">
           <summary>整體筆記${seasonNote ? "（有內容）" : ""}</summary>
           <textarea data-note="_season" rows="4" placeholder="看這${multi ? "一季" : "部片"}時的想法、想追蹤的句子、下次要複習的段落…">${esc(seasonNote)}</textarea>
@@ -354,11 +403,18 @@ window.BCE = window.BCE || {};
       </div>`;
   }
 
-  function wordCard(file, it) {
+  function timeCell(it, ep) {
+    const href = nfWatch(ep, it.t);
+    return href
+      ? `<a class="card-time" href="${href}" target="_blank" rel="noopener" title="在 Netflix 從 ${esc(it.t)} 開始看">${esc(it.t)}<span class="nf-dot" aria-hidden="true">▶</span></a>`
+      : `<span class="card-time">${esc(it.t)}</span>`;
+  }
+
+  function wordCard(file, it, ep) {
     const st = BCE.store.get(file, it.id);
     return `
       <article class="card word ${st.learned ? "is-learned" : ""}" id="${esc(it.id)}" data-item="${esc(it.id)}">
-        <span class="card-time">${esc(it.t)}</span>
+        ${timeCell(it, ep)}
         <i class="dot" aria-hidden="true"></i>
         <div class="card-body">
           <div class="term-row"><h4 class="term" lang="en">${esc(it.term)}</h4>${sayBtn(it.id, "term", "朗讀單字 " + it.term)}</div>
@@ -373,7 +429,7 @@ window.BCE = window.BCE || {};
       </article>`;
   }
 
-  function chunkCard(file, it) {
+  function chunkCard(file, it, ep) {
     const st = BCE.store.get(file, it.id);
     const slots = it.slots.map(([text, role]) => {
       const r = ["V", "prep", "O"].includes(role) ? role : "other";
@@ -381,7 +437,7 @@ window.BCE = window.BCE || {};
     }).join("");
     return `
       <article class="card chunk ${st.learned ? "is-learned" : ""}" id="${esc(it.id)}" data-item="${esc(it.id)}">
-        <span class="card-time">${esc(it.t)}</span>
+        ${timeCell(it, ep)}
         <i class="dot" aria-hidden="true"></i>
         <div class="card-body">
           <div class="term-row"><h4 class="term" lang="en">${esc(it.term)}</h4>${sayBtn(it.id, "term", "朗讀語塊 " + it.term)}</div>
@@ -518,6 +574,17 @@ window.BCE = window.BCE || {};
     if (say && current) {
       const it = current.itemMap[say.dataset.id];
       if (it && BCE.speech.speak(it[say.dataset.say], say)) BCE.mascot.animate("listen", $(".walker .onyx"));
+      return;
+    }
+
+    const epBtn = t.closest("[data-ep-pick]");
+    if (epBtn && current) {
+      BCE.store.pref("ep:" + current.file, epBtn.dataset.epPick);
+      const head = $(".show-head");
+      const y = head ? head.offsetTop + head.offsetHeight - 70 : 0;
+      const wasBelow = scrollY > y;
+      renderSeason(current.series, current.season, current.data, current.mode);
+      if (wasBelow) window.scrollTo(0, y);
       return;
     }
 

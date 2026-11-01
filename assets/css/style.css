@@ -624,6 +624,46 @@ textarea:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3p
   .speed-btn { padding: .4em .55em; }
 }
 
+/* ---------- Netflix links & episode strip ---------- */
+.nf-link {
+  display: inline-flex; align-items: center; gap: .5em; margin-top: 16px;
+  font-weight: 700; text-decoration: none;
+  padding: .55em 1.1em; border-radius: 999px;
+  background: var(--ink); color: var(--paper);
+}
+.nf-link::before { content: "▶"; font-size: .7em; color: var(--amber); }
+.nf-link:hover { background: var(--amber); color: #000; }
+.nf-link:hover::before { color: #000; }
+.soon { align-self: center; font-size: .85rem; color: var(--ink-3); padding: .35em .4em; white-space: nowrap; }
+.ep-strip {
+  display: flex; gap: 10px; margin-top: 22px;
+  overflow-x: auto; padding: 4px 2px 10px; margin-right: calc(var(--pad) * -1);
+  scroll-snap-type: x proximity;
+}
+.ep-strip button {
+  scroll-snap-align: start; flex: none;
+  display: grid; text-align: left; gap: 2px;
+  width: 168px; padding: 10px 12px 12px;
+  border: 1.5px solid var(--line); border-radius: 14px 14px 14px 4px;
+  background: var(--surface); cursor: pointer; position: relative; overflow: hidden;
+}
+.ep-strip button b { font-size: 1.15rem; font-weight: 800; letter-spacing: -.02em; }
+.ep-strip button span { font-size: .8rem; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ep-strip button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.ep-strip button[aria-pressed="true"] span { color: color-mix(in srgb, var(--paper) 70%, transparent); }
+.ep-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: var(--p, 0%); background: var(--amber); }
+.episode-head p a { color: var(--ink); font-weight: 600; text-decoration-color: var(--amber); text-underline-offset: 3px; }
+a.card-time { text-decoration: none; color: var(--ink-3); }
+a.card-time:hover { color: var(--ink); }
+.nf-dot { display: block; font-size: .62rem; color: var(--amber); line-height: 1; margin-top: 2px; }
+.tone-plum { background: #4A2C57; color: #F1EAF2; }
+.poster.has-cover { background-image: linear-gradient(to top, rgba(0,0,0,.82), rgba(0,0,0,.05) 60%), var(--cover); background-size: cover; background-position: center; color: #fff; }
+.poster.has-cover::after { display: none; }
+@media (max-width: 700px) {
+  .nf-dot { display: inline; margin: 0 0 0 6px; }
+  .ep-strip button { width: 140px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

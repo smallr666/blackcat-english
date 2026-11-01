@@ -1,6 +1,6 @@
 /* 離線快取：讓網站可以「加到主畫面」像 App 一樣使用，沒網路也能複習。
  * 每次更新網站內容時，把 VERSION 數字加一，使用者就會拿到新版。 */
-const VERSION = "bce-v2";
+const VERSION = "bce-v3";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest",
   "assets/css/style.css", "assets/js/config.js", "assets/js/store.js", "assets/js/speech.js", "assets/js/mascot.js", "assets/js/app.js",

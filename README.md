@@ -41,6 +41,18 @@ data/shows/_template.js    新的一季範本（含兩集示範）
 - **不同系列**：在 `catalog.js` 另開一筆，會是片單上的另一張海報。
 - 紀錄片或電影：只有一季、一集，頁面會自動隱藏季別與集數標題。
 
+## 重要欄位
+
+| 位置 | 欄位 | 用途 |
+|---|---|---|
+| catalog.js 系列 | `netflix` | 作品的 Netflix 頁面，格式 `https://www.netflix.com/title/<編號>` |
+| catalog.js 系列 | `totalSeasons` | 總季數，未上架的季別顯示「整理中」 |
+| catalog.js 系列 | `cover` | （選填）你有權使用的封面圖，例如 `assets/covers/friends.jpg` |
+| catalog.js 季別 | `episodes` | 這一季總集數，未上架的集數顯示「整理中」 |
+| 季別資料檔的每一集 | `netflixId` | 該集的 Netflix 編號（字幕檔名裡的數字），卡片時間會變成「從這一刻開始看」的連結 |
+
+單字與語塊數量會自動計算，不需要手動填。
+
 ## 新增內容
 
 **新系列**
@@ -51,7 +63,7 @@ data/shows/_template.js    新的一季範本（含兩集示範）
 1. 在該系列的 `seasons` 加一筆，例如 `{ id: "s2", label: "第 2 季", file: "wednesday-s2", ... }`。
 2. 新增對應的 `data/shows/wednesday-s2.js`。
 
-**同一季的新一集**：直接在該季檔案的 `episodes` 陣列加一集。單字與語塊的 `id` 在同一季不可重複，建議用 `e2-w01` 這種格式。
+**同一季的新一集**：直接在該季檔案的 `episodes` 陣列加一集（記得填 `netflixId`）。單字與語塊的 `id` 在同一季不可重複，建議用 `e2-w01` 這種格式。頁面上的集數卡會自動多出一張。
 
 最後把 `sw.js` 的 `VERSION` 改成下一號（例如 `bce-v3`），推上 GitHub。
 

@@ -1,17 +1,13 @@
-/* BlackCat English — 影集學習資料
- * 每部影集一個檔案，呼叫 BCE.registerShow({...})。
+/* BlackCat English — 學習資料（一季或一部片一個檔案）
  * 欄位說明請見 data/shows/_template.js
- * context 只放「單句」簡短引用，作為學習用途；請勿放整份字幕。
+ * line 只放「單句」簡短引用，作為學習用途；請勿放整份字幕。
  */
-BCE.registerShow({
-  id: "inside-the-mind-of-a-cat",
-  title: "Inside the Mind of a Cat",
-  zh: "喵星人奇思妙想",
-  kind: "紀錄片",
-  year: 2022,
-  runtime: "66 分鐘",
-  level: "B1–B2",
+BCE.registerSeason({
+  file: "inside-the-mind-of-a-cat",
   blurb: "科學家、獸醫與表演貓訓練師帶你重新認識貓。旁白語速穩定、用字精準，很適合練「科普英文」與日常口語語塊。",
+  episodes: [{
+  id: "e1", no: 1,
+  title: "Inside the Mind of a Cat", zh: "喵星人奇思妙想", runtime: "66 分鐘",
   chapters: [
     { t: "00:00", en: "Cold open", zh: "開場：貓的腦袋裡在想什麼" },
     { t: "02:30", en: "Built to hunt", zh: "天生的獵人身體" },
@@ -358,4 +354,5 @@ BCE.registerShow({
       trap: "比 similar to 更文雅，寫作與演講常用。",
       use: "Learning a language is akin to learning an instrument." }
   ]
+  }]
 });

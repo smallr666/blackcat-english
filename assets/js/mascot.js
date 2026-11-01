@@ -1,17 +1,19 @@
-/* Onyx — BlackCat English 的吉祥物
- * 原則：Onyx 是一隻真正的貓，不說話、不擬人。
- * 牠的反應用「影集字幕的聲音描述」方式呈現，例如 [Onyx 慢慢眨眼]。
+/* 小墨 Onyx — BlackCat English 的吉祥物（名字在 assets/js/config.js 設定）
+ * 原則：小墨是一隻真正的貓，不說話、不擬人。
+ * 牠的反應用「影集字幕的聲音描述」方式呈現，例如 [小墨 慢慢眨眼]。
  */
 window.BCE = window.BCE || {};
 
 (function (BCE) {
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const NAME = (BCE.config && BCE.config.mascot) || { en: "Onyx", zh: "小墨" };
+  const named = t => t.replace(/\{name\}/g, NAME.zh);
 
   function svg(opts = {}) {
     const cls = opts.cls || "";
-    const label = opts.label || "黑貓吉祥物 Onyx";
+    const label = opts.label === undefined ? `黑貓吉祥物 ${NAME.zh}（${NAME.en}）` : opts.label;
     return `
-<svg class="onyx ${cls}" viewBox="0 0 200 260" role="img" aria-label="${label}">
+<svg class="onyx ${cls}" viewBox="0 0 200 260" ${label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"'}>
   <g class="onyx-tail"><path d="M138 240 C 184 238, 198 200, 178 174 C 170 164, 160 168, 165 180" /></g>
   <g class="onyx-body">
     <path class="onyx-ear onyx-ear-l" d="M58 66 L60 16 L96 46 Z" />
@@ -92,12 +94,12 @@ window.BCE = window.BCE || {};
     const root = document.documentElement;
     if (root.classList.contains("is-asleep")) {
       root.classList.remove("is-asleep");
-      caption("[Onyx 醒過來，伸了個懶腰]");
+      caption(named("[{name} 醒過來，伸了個懶腰]"));
     }
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       root.classList.add("is-asleep");
-      caption("[Onyx 窩成一團睡著了]");
+      caption(named("[{name} 窩成一團睡著了]"));
     }, IDLE_MS);
   }
   ["pointerdown", "keydown", "scroll", "touchstart"].forEach(ev =>
@@ -119,28 +121,33 @@ window.BCE = window.BCE || {};
 
   const lines = {
     learned: [
-      "[Onyx 慢慢眨眼，這是貓表達信任的方式]",
-      "[Onyx 輕輕甩了一下尾巴]",
-      "[Onyx 發出低低的呼嚕聲]",
-      "[Onyx 用鼻子碰了碰你的手指]"
+      "[{name} 慢慢眨眼，這是貓表達信任的方式]",
+      "[{name} 輕輕甩了一下尾巴]",
+      "[{name} 發出低低的呼嚕聲]",
+      "[{name} 用鼻子碰了碰你的手指]"
     ],
-    unlearned: ["[Onyx 歪著頭看你]"],
-    chapter: ["[Onyx 伸了個大懶腰，這一章學完了]"],
-    words: ["[Onyx 一隻耳朵轉向你：單字模式]"],
-    chunks: ["[Onyx 兩隻耳朵都豎起來：語塊模式]"],
+    unlearned: ["[{name} 歪著頭看你]"],
+    hello: ["[{name} 從月亮前探出頭，對你慢慢眨眼]"],
+    chapter: ["[{name} 伸了個大懶腰，這一章學完了]"],
+    words: ["[{name} 一隻耳朵轉向你：單字模式]"],
+    chunks: ["[{name} 兩隻耳朵都豎起來：語塊模式]"],
     poke: [
-      "[Onyx 盯著你看了三秒，然後慢慢眨眼]",
-      "[Onyx 從鍵盤上走過去]",
-      "[Onyx 把頭靠過來蹭你的手]",
-      "[Onyx 尾巴尖端輕輕抖動，牠很好奇]"
+      "[{name} 盯著你看了三秒，然後慢慢眨眼]",
+      "[{name} 從鍵盤上走過去]",
+      "[{name} 把頭靠過來蹭你的手]",
+      "[{name} 尾巴尖端輕輕抖動，牠很好奇]"
     ],
-    saved: ["[Onyx 把你的筆記藏進紙箱]"]
+    saved: ["[{name} 把你的筆記藏進紙箱]"]
   };
 
   function react(kind, targetEl) {
     const pool = lines[kind] || lines.poke;
-    caption(pool[Math.floor(Math.random() * pool.length)]);
-    const anim = { learned: "flick", chapter: "stretch", words: "ear", chunks: "ears", poke: "flick", unlearned: "tilt" }[kind];
+    caption(named(pool[Math.floor(Math.random() * pool.length)]));
+    animate(kind, targetEl);
+  }
+
+  function animate(kind, targetEl) {
+    const anim = { learned: "flick", chapter: "stretch", words: "ear", chunks: "ears", poke: "flick", unlearned: "tilt", hello: "flick", listen: "ears" }[kind];
     const cats = targetEl ? [targetEl] : document.querySelectorAll(".onyx");
     cats.forEach(c => {
       if (!anim || reduceMotion) return;
@@ -151,6 +158,6 @@ window.BCE = window.BCE || {};
     });
   }
 
-  BCE.mascot = { svg, mark, watch, react };
+  BCE.mascot = { svg, mark, watch, react, animate, name: NAME };
   BCE.caption = caption;
 })(window.BCE);

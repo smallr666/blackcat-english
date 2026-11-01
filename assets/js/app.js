@@ -1,32 +1,47 @@
 /* BlackCat English — 主程式
  * 路由（hash，GitHub Pages 不需設定伺服器）：
  *   #/                     首頁
- *   #/show/<id>            影集（預設單字模式）
- *   #/show/<id>/chunks     影集語塊模式
+ *   #/show/<系列>                     系列（第一季，單字模式）
+ *   #/show/<系列>/chunks              語塊模式
+ *   #/show/<系列>/<季>/[chunks]       指定季別（有多季時）
  *   #/notes                筆記本
  */
 window.BCE = window.BCE || {};
 
 (function (BCE) {
-  BCE.shows = BCE.shows || {};
+  BCE.seasons = BCE.seasons || {};
   const pending = {};
 
-  BCE.registerShow = function (show) {
-    BCE.shows[show.id] = show;
-    (pending[show.id] || []).forEach(fn => fn(show));
-    delete pending[show.id];
+  BCE.registerSeason = function (season) {
+    BCE.seasons[season.file] = season;
+    (pending[season.file] || []).forEach(p => p.resolve(season));
+    delete pending[season.file];
   };
 
-  BCE.loadShow = function (id) {
+  /* file → { series, season } */
+  function locate(file) {
+    for (const series of BCE.catalog || []) {
+      const season = series.seasons.find(x => x.file === file);
+      if (season) return { series, season };
+    }
+    return null;
+  }
+
+  BCE.loadSeason = function (file) {
     return new Promise((resolve, reject) => {
-      if (BCE.shows[id]) return resolve(BCE.shows[id]);
-      if (!(BCE.catalog || []).some(s => s.id === id)) return reject(new Error("找不到這部影集：" + id));
-      (pending[id] = pending[id] || []).push(resolve);
-      if (document.querySelector(`script[data-show="${id}"]`)) return;
+      if (BCE.seasons[file]) return resolve(BCE.seasons[file]);
+      if (!locate(file)) return reject(new Error("片單裡找不到這一季：" + file));
+      (pending[file] = pending[file] || []).push({ resolve, reject });
+      if (document.querySelector(`script[data-season="${file}"]`)) return;
       const s = document.createElement("script");
-      s.src = `data/shows/${id}.js`;
-      s.dataset.show = id;
-      s.onerror = () => reject(new Error("影集資料載入失敗：data/shows/" + id + ".js"));
+      s.src = `data/shows/${file}.js`;
+      s.dataset.season = file;
+      s.onerror = () => {
+        s.remove();
+        const err = new Error("資料載入失敗：data/shows/" + file + ".js");
+        (pending[file] || []).forEach(p => p.reject(err));
+        delete pending[file];
+      };
       document.head.appendChild(s);
     });
   };
@@ -51,12 +66,19 @@ window.BCE = window.BCE || {};
     const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
     $$(".nav a").forEach(a => a.removeAttribute("aria-current"));
     window.removeEventListener("scroll", onTimelineScroll);
+    if (BCE.speech) BCE.speech.stop();
 
     if (parts[0] === "show" && parts[1]) {
-      const mode = parts[2] === "chunks" ? "chunks" : "words";
+      const series = (BCE.catalog || []).find(x => x.id === parts[1]);
+      if (!series) { renderError("片單裡找不到這部作品：" + parts[1]); return; }
+      let seasonId = series.seasons[0].id, mode = "words";
+      if (parts[2] === "chunks" || parts[2] === "words") mode = parts[2];
+      else if (parts[2]) { seasonId = parts[2]; mode = parts[3] === "chunks" ? "chunks" : "words"; }
+      const season = series.seasons.find(x => x.id === seasonId);
+      if (!season) { renderError(`《${series.zh}》沒有這一季：${seasonId}`); return; }
       renderLoading();
-      BCE.loadShow(parts[1])
-        .then(show => renderShow(show, mode))
+      BCE.loadSeason(season.file)
+        .then(data => renderSeason(series, season, data, mode))
         .catch(err => renderError(err.message));
       return;
     }
@@ -81,17 +103,30 @@ window.BCE = window.BCE || {};
     setPage(`<section class="state"><h1>這一頁打不開</h1><p>${esc(msg)}</p><p><a class="btn" href="#/">回到片單</a></p></section>`);
   }
 
+  /* ---------- 連結 ---------- */
+  function seasonHref(series, season, mode) {
+    const multi = series.seasons.length > 1;
+    return `#/show/${series.id}${multi ? "/" + season.id : ""}${mode === "chunks" ? "/chunks" : ""}`;
+  }
+
   /* ---------- 首頁 ---------- */
   function renderHome() {
-    const shows = BCE.catalog || [];
-    const latest = shows[0];
-    const posters = shows.map(s => `
-      <a class="poster tone-${esc(s.tone || "pine")}" href="#/show/${esc(s.id)}">
+    const list = BCE.catalog || [];
+    const latest = list[0];
+    const M = BCE.mascot.name;
+    const posters = list.map(s => {
+      const words = s.seasons.reduce((a, x) => a + (x.words || 0), 0);
+      const chunks = s.seasons.reduce((a, x) => a + (x.chunks || 0), 0);
+      const eps = s.seasons.reduce((a, x) => a + (x.episodes || 0), 0);
+      const scope = s.seasons.length > 1 ? `${s.seasons.length} 季　${eps} 集` : (eps > 1 ? `${eps} 集` : s.kind);
+      return `
+      <a class="poster tone-${esc(s.tone || "pine")}" href="${seasonHref(s, s.seasons[0], "words")}">
         <span class="poster-kind">${esc(s.kind)}｜${esc(s.year)}</span>
         <span class="poster-title" lang="en">${esc(s.title)}</span>
         <span class="poster-zh">${esc(s.zh)}</span>
-        <span class="poster-meta">${s.words} 個單字　${s.chunks} 個語塊　${esc(s.level)}</span>
-      </a>`).join("");
+        <span class="poster-meta">${esc(scope)}　${words} 個單字　${chunks} 個語塊</span>
+      </a>`;
+    }).join("");
 
     setPage(`
       <section class="hero">
@@ -103,15 +138,15 @@ window.BCE = window.BCE || {};
         <div class="hero-cat">${BCE.mascot.svg({ cls: "onyx-hero" })}</div>
         <div class="hero-copy">
           <p class="hero-lead">看劇的時候，讓英文整塊浮出來。</p>
-          <p class="hero-sub">每部 Netflix 影集都照時間軸拆成兩條路線：單字，以及母語者真正成組在用的詞彙語塊。邊看邊對照，筆記會留在你的裝置上。</p>
-          ${latest ? `<a class="btn btn-solid" href="#/show/${esc(latest.id)}">從《${esc(latest.zh)}》開始</a>` : ""}
+          <p class="hero-sub">每部 Netflix 作品都照時間軸拆成兩條路線：單字，以及母語者真正成組在用的詞彙語塊。每一句都能點開聽發音，筆記會留在你的裝置上。</p>
+          ${latest ? `<a class="btn btn-solid" href="${seasonHref(latest, latest.seasons[0], "words")}">從《${esc(latest.zh)}》開始</a>` : ""}
         </div>
       </section>
 
       <section class="shelf" aria-labelledby="shelf-h">
         <div class="section-head">
           <h2 id="shelf-h">片單</h2>
-          <p>目前 ${shows.length} 部，持續上架中。</p>
+          <p>目前 ${list.length} 部作品，持續上架中。</p>
         </div>
         <div class="poster-row">
           ${posters}
@@ -138,69 +173,117 @@ window.BCE = window.BCE || {};
           </p>
           <figcaption><span class="demo-cap-words">十個字，大腦要處理十次。</span><span class="demo-cap-chunks"><span lang="en">tap into + potential</span>：一個語塊，一次就懂。</span></figcaption>
         </figure>
+      </section>
+
+      <section class="meet" aria-labelledby="meet-h">
+        <div class="meet-cat">${BCE.mascot.svg({ cls: "onyx-meet" })}</div>
+        <div class="meet-text">
+          <h2 id="meet-h">這是${esc(M.zh)}<small lang="en">${esc(M.en)}</small></h2>
+          <p>英文名取自黑瑪瑙 ${esc(M.en)}，中文名是寫筆記時的那一抹墨。${esc(M.zh)}不會說話，牠用貓的方式陪你學：你學會一個語塊，牠會慢慢眨眼；你太久沒動，牠會窩起來睡著。</p>
+          <p class="meet-hint">牠的反應會像影集字幕一樣出現在畫面下方。點點看牠。</p>
+        </div>
       </section>`);
 
     BCE.mascot.watch($(".onyx-hero"));
+    BCE.mascot.watch($(".onyx-meet"));
+    if (!BCE.store.pref("met")) {
+      BCE.store.pref("met", true);
+      setTimeout(() => BCE.mascot.react("hello", $(".onyx-hero")), 1800);
+    }
   }
 
-  /* ---------- 影集頁 ---------- */
+  /* ---------- 季別頁 ---------- */
   let current = null;
 
-  function renderShow(show, mode) {
+  function renderSeason(series, season, data, mode) {
     const isChunks = mode === "chunks";
-    const items = (isChunks ? show.chunks : show.words).slice().sort((a, b) => toSec(a.t) - toSec(b.t));
-    const chapters = show.chapters.map((c, i) => ({ ...c, i, items: [] }));
-    items.forEach(it => {
-      let ch = chapters[0];
-      chapters.forEach(c => { if (toSec(c.t) <= toSec(it.t)) ch = c; });
-      ch.items.push(it);
+    const multi = data.episodes.length > 1;
+    const itemMap = {};
+    const eps = data.episodes.map(ep => {
+      [...(ep.words || []), ...(ep.chunks || [])].forEach(it => { itemMap[it.id] = it; });
+      const items = ((isChunks ? ep.chunks : ep.words) || []).slice().sort((a, b) => toSec(a.t) - toSec(b.t));
+      const base = ep.chapters && ep.chapters.length ? ep.chapters : [{ t: "00:00", en: "", zh: "" }];
+      const chapters = base.map((c, i) => ({ ...c, i, key: `${ep.id}-ch-${i}`, items: [] }));
+      items.forEach(it => {
+        let ch = chapters[0];
+        chapters.forEach(c => { if (toSec(c.t) <= toSec(it.t)) ch = c; });
+        ch.items.push(it);
+      });
+      return { ...ep, items, chapters };
     });
+    const allItems = eps.flatMap(e => e.items);
     const hideLearned = BCE.store.pref("hideLearned") === true;
-    const sameShow = current && current.show.id === show.id;
-    current = { show, mode, items, chapters };
-    BCE.store.pref("lastShow", show.id);
+    const sameSeason = current && current.file === data.file;
+    current = { series, season, data, file: data.file, mode, eps, allItems, itemMap };
 
-    const showNote = BCE.store.get(show.id, "_show").note || "";
-    const chapterOptions = chapters.filter(c => c.items.length)
-      .map(c => `<option value="ch-${c.i}">${esc(c.t)}　${esc(c.zh)}</option>`).join("");
+    const totalWords = data.episodes.reduce((a, e) => a + (e.words || []).length, 0);
+    const totalChunks = data.episodes.reduce((a, e) => a + (e.chunks || []).length, 0);
+    const seasonNote = BCE.store.get(data.file, "_season").note || "";
+    const runtime = multi ? `共 ${data.episodes.length} 集` : (data.episodes[0].runtime || "");
 
-    const body = chapters.filter(c => c.items.length).map(c => `
-      <section class="chapter" id="ch-${c.i}" data-chapter="${c.i}">
-        <header class="chapter-head">
-          <span class="chapter-time">${esc(c.t)}</span>
-          <h3><span lang="en">${esc(c.en)}</span><small>${esc(c.zh)}</small></h3>
-        </header>
-        ${c.items.map(it => isChunks ? chunkCard(show.id, it) : wordCard(show.id, it)).join("")}
+    const seasonTabs = series.seasons.length > 1 ? `
+      <nav class="season-tabs" aria-label="季別">
+        ${series.seasons.map(x => `<a href="${seasonHref(series, x, mode)}" ${x.id === season.id ? 'aria-current="page"' : ""}>${esc(x.label)}</a>`).join("")}
+      </nav>` : "";
+
+    const chapterOpts = ep => ep.chapters.filter(c => c.items.length)
+      .map(c => `<option value="${c.key}">${multi ? "E" + ep.no + "　" : ""}${esc(c.t)}　${esc(c.zh || c.en || "")}</option>`).join("");
+    const jumpOptions = multi
+      ? eps.filter(e => e.items.length).map(e => `<optgroup label="E${e.no}　${esc(e.zh || e.title)}">${chapterOpts(e)}</optgroup>`).join("")
+      : chapterOpts(eps[0]);
+
+    const body = eps.filter(e => e.items.length).map(ep => `
+      <section class="episode" id="${esc(ep.id)}">
+        ${multi ? `
+        <header class="episode-head">
+          <span class="ep-no" lang="en">E${esc(ep.no)}</span>
+          <h2 lang="en">${esc(ep.title)}</h2>
+          <p>${esc(ep.zh || "")}${ep.runtime ? "　" + esc(ep.runtime) : ""}</p>
+        </header>` : ""}
+        ${ep.chapters.filter(c => c.items.length).map(c => `
+        <section class="chapter" id="${c.key}" data-ep="${esc(ep.id)}" data-ch="${c.i}">
+          <header class="chapter-head">
+            <span class="chapter-time">${esc(c.t)}</span>
+            <h3>${c.en ? `<span lang="en">${esc(c.en)}</span>` : ""}${c.zh ? `<small>${esc(c.zh)}</small>` : ""}</h3>
+          </header>
+          ${c.items.map(it => isChunks ? chunkCard(data.file, it) : wordCard(data.file, it)).join("")}
+        </section>`).join("")}
       </section>`).join("");
+
+    const slow = BCE.store.pref("slowSpeech") === true;
 
     setPage(`
       <section class="show-head">
-        <p class="crumb"><a href="#/">片單</a><span aria-hidden="true">／</span>${esc(show.kind)}</p>
-        <h1 class="show-title" lang="en">${esc(show.title)}</h1>
-        <p class="show-zh">${esc(show.zh)}</p>
-        <p class="show-blurb">${esc(show.blurb)}</p>
-        <p class="show-facts">${esc(show.year)} 年　${esc(show.runtime)}　難度 ${esc(show.level)}</p>
+        <p class="crumb"><a href="#/">片單</a><span aria-hidden="true">／</span>${esc(series.kind)}</p>
+        <h1 class="show-title" lang="en">${esc(series.title)}</h1>
+        <p class="show-zh">${esc(series.zh)}${series.seasons.length > 1 ? "　" + esc(season.label) : ""}</p>
+        ${seasonTabs}
+        <p class="show-blurb">${esc(data.blurb || series.blurb || "")}</p>
+        <p class="show-facts">${esc(series.year)} 年　${esc(runtime)}　難度 ${esc(series.level || "")}</p>
         <details class="show-note">
-          <summary>整集筆記${showNote ? "（有內容）" : ""}</summary>
-          <textarea data-note="_show" rows="4" placeholder="看這集時的想法、想追蹤的句子、下次要複習的段落…">${esc(showNote)}</textarea>
+          <summary>整體筆記${seasonNote ? "（有內容）" : ""}</summary>
+          <textarea data-note="_season" rows="4" placeholder="看這${multi ? "一季" : "部片"}時的想法、想追蹤的句子、下次要複習的段落…">${esc(seasonNote)}</textarea>
           <span class="save-state" aria-live="polite"></span>
         </details>
       </section>
 
       <div class="toolbar" role="region" aria-label="學習工具">
         <div class="mode-switch" data-mode="${mode}">
-          <a href="#/show/${esc(show.id)}" ${!isChunks ? 'aria-current="page"' : ""}>單字<span>${show.words.length}</span></a>
-          <a href="#/show/${esc(show.id)}/chunks" ${isChunks ? 'aria-current="page"' : ""}>語塊<span>${show.chunks.length}</span></a>
+          <a href="${seasonHref(series, season, "words")}" ${!isChunks ? 'aria-current="page"' : ""}>單字<span>${totalWords}</span></a>
+          <a href="${seasonHref(series, season, "chunks")}" ${isChunks ? 'aria-current="page"' : ""}>語塊<span>${totalChunks}</span></a>
           <i class="mode-thumb" aria-hidden="true"></i>
         </div>
         <label class="jump">
           <span class="sr">跳到段落</span>
-          <select data-jump>${chapterOptions}</select>
+          <select data-jump>${jumpOptions}</select>
         </label>
         <label class="hide-learned">
           <input type="checkbox" data-hide ${hideLearned ? "checked" : ""}>
           <span>隱藏已學會</span>
         </label>
+        <button type="button" class="speed-btn" data-speed aria-pressed="${slow ? "true" : "false"}">
+          ${speakerIcon()}<span>慢速朗讀</span>
+        </button>
         <p class="progress-text" data-progress></p>
       </div>
 
@@ -214,23 +297,42 @@ window.BCE = window.BCE || {};
           <i class="track-fill"></i>
           <div class="walker">${BCE.mascot.svg({ cls: "onyx-mini", label: "" })}</div>
         </div>
-        ${body}
-      </div>`, `${show.zh} ${isChunks ? "語塊" : "單字"}`);
+        ${body || `<p class="state">這一季的${isChunks ? "語塊" : "單字"}還在整理中。</p>`}
+      </div>`, `${series.zh} ${isChunks ? "語塊" : "單字"}`);
 
     updateProgress();
     window.addEventListener("scroll", onTimelineScroll, { passive: true });
     onTimelineScroll();
 
     const prev = BCE.store.pref("lastMode");
-    if (prev && prev !== mode && sameShow) {
+    if (prev && prev !== mode && sameSeason) {
       $(".mode-switch").classList.add("switched");
       BCE.mascot.react(mode, $(".walker .onyx"));
     }
     BCE.store.pref("lastMode", mode);
+
+    if (BCE.focusItem) {
+      const card = document.getElementById(BCE.focusItem);
+      BCE.focusItem = null;
+      if (card) {
+        card.scrollIntoView({ block: "center" });
+        const box = card.querySelector(".note");
+        if (box) { box.hidden = false; card.querySelector("[data-open-note]").setAttribute("aria-expanded", "true"); }
+        card.classList.add("stamp");
+        setTimeout(() => card.classList.remove("stamp"), 700);
+      }
+    }
   }
 
-  function noteBlock(showId, it) {
-    const note = BCE.store.get(showId, it.id).note || "";
+  function speakerIcon() {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path class="spk" d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave w1" d="M15 9.2a4 4 0 0 1 0 5.6"/><path class="wave w2" d="M17.6 6.8a7.4 7.4 0 0 1 0 10.4"/></svg>`;
+  }
+  function sayBtn(id, field, label, small) {
+    return `<button type="button" class="say ${small ? "say-sm" : ""}" data-say="${esc(field)}" data-id="${esc(id)}" aria-pressed="false" aria-label="${esc(label)}">${speakerIcon()}</button>`;
+  }
+
+  function noteBlock(file, it) {
+    const note = BCE.store.get(file, it.id).note || "";
     return `
       <div class="note ${note ? "has-note" : ""}" ${note ? "" : "hidden"}>
         <textarea data-note="${esc(it.id)}" rows="3" placeholder="寫下你自己的例句、聯想，或在劇裡聽到時的感覺…">${esc(note)}</textarea>
@@ -238,8 +340,8 @@ window.BCE = window.BCE || {};
       </div>`;
   }
 
-  function cardActions(showId, it) {
-    const st = BCE.store.get(showId, it.id);
+  function cardActions(file, it) {
+    const st = BCE.store.get(file, it.id);
     return `
       <div class="card-actions">
         <button type="button" class="act-learn" data-learn="${esc(it.id)}" aria-pressed="${st.learned ? "true" : "false"}">
@@ -252,26 +354,27 @@ window.BCE = window.BCE || {};
       </div>`;
   }
 
-  function wordCard(showId, it) {
-    const st = BCE.store.get(showId, it.id);
+  function wordCard(file, it) {
+    const st = BCE.store.get(file, it.id);
     return `
       <article class="card word ${st.learned ? "is-learned" : ""}" id="${esc(it.id)}" data-item="${esc(it.id)}">
         <span class="card-time">${esc(it.t)}</span>
         <i class="dot" aria-hidden="true"></i>
         <div class="card-body">
-          <h4 class="term" lang="en">${esc(it.term)}</h4>
+          <div class="term-row"><h4 class="term" lang="en">${esc(it.term)}</h4>${sayBtn(it.id, "term", "朗讀單字 " + it.term)}</div>
           <p class="term-meta"><span class="ipa" lang="en">/${esc(it.ipa)}/</span><span class="pos">${esc(it.pos)}</span></p>
           <p class="zh">${esc(it.zh)}</p>
-          <blockquote class="ctx" lang="en">${highlight(it.line, it.term)}<cite>${esc(it.who)}　${esc(it.t)}</cite></blockquote>
+          <blockquote class="ctx" lang="en">${highlight(it.line, it.term)}
+            <cite>${esc(it.who)}　${esc(it.t)}${sayBtn(it.id, "line", "朗讀片中原句", true)}</cite></blockquote>
           <p class="tip">${esc(it.tip)}</p>
-          ${cardActions(showId, it)}
-          ${noteBlock(showId, it)}
+          ${cardActions(file, it)}
+          ${noteBlock(file, it)}
         </div>
       </article>`;
   }
 
-  function chunkCard(showId, it) {
-    const st = BCE.store.get(showId, it.id);
+  function chunkCard(file, it) {
+    const st = BCE.store.get(file, it.id);
     const slots = it.slots.map(([text, role]) => {
       const r = ["V", "prep", "O"].includes(role) ? role : "other";
       return `<span class="slot r-${r}" lang="en"><b>${esc(text)}</b><small>${esc(ROLE[role] || role)}</small></span>`;
@@ -281,15 +384,16 @@ window.BCE = window.BCE || {};
         <span class="card-time">${esc(it.t)}</span>
         <i class="dot" aria-hidden="true"></i>
         <div class="card-body">
-          <h4 class="term" lang="en">${esc(it.term)}</h4>
+          <div class="term-row"><h4 class="term" lang="en">${esc(it.term)}</h4>${sayBtn(it.id, "term", "朗讀語塊 " + it.term)}</div>
           <p class="pattern">${esc(patternOf(it.slots))}</p>
           <p class="slots">${slots}</p>
           <p class="zh">${esc(it.zh)}</p>
-          <blockquote class="ctx" lang="en">${esc(it.line)}<cite>${esc(it.who)}　${esc(it.t)}</cite></blockquote>
+          <blockquote class="ctx" lang="en">${esc(it.line)}
+            <cite>${esc(it.who)}　${esc(it.t)}${sayBtn(it.id, "line", "朗讀片中原句", true)}</cite></blockquote>
           <div class="trap"><strong>中文腦陷阱</strong><p>${esc(it.trap)}</p></div>
-          <p class="use"><strong>換你用</strong><span lang="en">${esc(it.use)}</span></p>
-          ${cardActions(showId, it)}
-          ${noteBlock(showId, it)}
+          <p class="use"><strong>換你用</strong><span lang="en">${esc(it.use)}</span>${sayBtn(it.id, "use", "朗讀例句", true)}</p>
+          ${cardActions(file, it)}
+          ${noteBlock(file, it)}
         </div>
       </article>`;
   }
@@ -302,13 +406,13 @@ window.BCE = window.BCE || {};
 
   function updateProgress() {
     if (!current) return;
-    const ids = current.items.map(i => i.id);
-    const n = BCE.store.learnedCount(current.show.id, ids);
+    const ids = current.allItems.map(i => i.id);
+    const n = BCE.store.learnedCount(current.file, ids);
     const el = $("[data-progress]");
     if (el) el.textContent = `已學會 ${n} / ${ids.length}`;
   }
 
-  /* 時間軸：進度線與走動的 Onyx */
+  /* 時間軸：進度線與走動的小墨 */
   let walkTimer = 0;
   function onTimelineScroll() {
     const tl = $(".timeline");
@@ -334,33 +438,41 @@ window.BCE = window.BCE || {};
 
   /* ---------- 筆記本 ---------- */
   function renderNotebook() {
-    const ids = (BCE.catalog || []).map(s => s.id);
-    Promise.all(ids.map(id => BCE.loadShow(id).catch(() => null))).then(() => {
-      const notes = BCE.store.notes();
-      const rows = notes.map(n => {
-        const show = BCE.shows[n.showId];
-        if (!show) return "";
-        const it = n.itemId === "_show" ? null
-          : [...show.words, ...show.chunks].find(x => x.id === n.itemId);
-        const isChunk = it && show.chunks.includes(it);
-        const href = it ? `#/show/${show.id}${isChunk ? "/chunks" : ""}` : `#/show/${show.id}`;
+    const files = (BCE.catalog || []).flatMap(s => s.seasons.map(x => x.file));
+    Promise.all(files.map(f => BCE.loadSeason(f).catch(() => null))).then(() => {
+      const rows = BCE.store.notes().map(n => {
+        const loc = locate(n.showId);
+        const data = BCE.seasons[n.showId];
+        if (!loc || !data) return "";
+        const { series, season } = loc;
+        const multiSeason = series.seasons.length > 1;
+        let it = null, ep = null, isChunk = false;
+        data.episodes.forEach(e => {
+          const w = (e.words || []).find(x => x.id === n.itemId);
+          const c = (e.chunks || []).find(x => x.id === n.itemId);
+          if (w || c) { it = w || c; ep = e; isChunk = !!c; }
+        });
+        if (!it && n.itemId !== "_season") return "";
+        const href = seasonHref(series, season, isChunk ? "chunks" : "words");
+        const where = [series.zh, multiSeason ? season.label : "", data.episodes.length > 1 && ep ? "E" + ep.no : "", it ? it.t : "", it ? (isChunk ? "語塊" : "單字") : ""].filter(Boolean).join("　");
         const when = n.updated ? new Date(n.updated).toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" }) : "";
         return `
-          <article class="nb-item" data-show="${esc(show.id)}" data-search="${esc((it ? it.term + " " + it.zh : "整集筆記") + " " + n.note).toLowerCase()}">
+          <article class="nb-item" data-search="${esc(((it ? it.term + " " + it.zh : "整體筆記") + " " + n.note).toLowerCase())}">
             <header>
-              <a href="${href}" class="nb-term" ${it ? 'lang="en"' : ""}>${it ? esc(it.term) : "整集筆記"}</a>
-              <span class="nb-meta">${esc(show.zh)}${it ? "　" + esc(it.t) + "　" + (isChunk ? "語塊" : "單字") : ""}</span>
+              <a href="${href}" class="nb-term" data-focus="${it ? esc(it.id) : ""}" ${it ? 'lang="en"' : ""}>${it ? esc(it.term) : "整體筆記"}</a>
+              <span class="nb-meta">${esc(where)}</span>
             </header>
-            <textarea data-note="${esc(n.itemId)}" data-note-show="${esc(show.id)}" rows="3">${esc(n.note)}</textarea>
+            <textarea data-note="${esc(n.itemId)}" data-note-file="${esc(n.showId)}" rows="3">${esc(n.note)}</textarea>
             <footer><span class="save-state" aria-live="polite">最後修改 ${esc(when)}</span>
-              <button type="button" class="link-btn" data-clear-note="${esc(n.itemId)}" data-note-show="${esc(show.id)}">刪除這則筆記</button></footer>
+              <button type="button" class="link-btn" data-clear-note="${esc(n.itemId)}" data-note-file="${esc(n.showId)}">刪除這則筆記</button></footer>
           </article>`;
       }).join("");
 
+      const first = (BCE.catalog || [])[0];
       setPage(`
         <section class="nb-head">
           <h1>筆記本</h1>
-          <p>所有影集的筆記都在這裡，可以直接修改，會自動儲存在這台裝置的瀏覽器裡。換手機或清除瀏覽器資料前，請先匯出備份。</p>
+          <p>所有作品的筆記都在這裡，可以直接修改，會自動儲存在這台裝置的瀏覽器裡。換手機或清除瀏覽器資料前，請先匯出備份。</p>
           <div class="nb-tools">
             <label class="nb-search"><span class="sr">搜尋筆記</span><input type="search" data-nb-search placeholder="搜尋單字、語塊或筆記內容"></label>
             <button type="button" class="btn" data-export>匯出備份</button>
@@ -369,8 +481,8 @@ window.BCE = window.BCE || {};
         </section>
         <section class="nb-list">
           ${rows || `<div class="nb-empty">${BCE.mascot.svg({ cls: "onyx-empty", label: "" })}
-            <p>還沒有筆記。打開任一部影集，在卡片上按「寫筆記」，寫下的內容會出現在這裡。</p>
-            <a class="btn btn-solid" href="#/${BCE.catalog[0] ? "show/" + BCE.catalog[0].id : ""}">去寫第一則筆記</a></div>`}
+            <p>還沒有筆記。打開任一部作品，在卡片上按「寫筆記」，寫下的內容會出現在這裡。</p>
+            ${first ? `<a class="btn btn-solid" href="${seasonHref(first, first.seasons[0], "words")}">去寫第一則筆記</a>` : ""}</div>`}
         </section>`, "筆記本");
     });
   }
@@ -384,7 +496,7 @@ window.BCE = window.BCE || {};
     const learn = t.closest("[data-learn]");
     if (learn && current) {
       const id = learn.dataset.learn;
-      const on = BCE.store.toggleLearned(current.show.id, id);
+      const on = BCE.store.toggleLearned(current.file, id);
       const card = learn.closest(".card");
       card.classList.toggle("is-learned", on);
       learn.setAttribute("aria-pressed", on ? "true" : "false");
@@ -395,11 +507,31 @@ window.BCE = window.BCE || {};
       }
       updateProgress();
       const chEl = card.closest(".chapter");
-      const ch = current.chapters[+chEl.dataset.chapter];
-      const done = on && ch.items.every(x => BCE.store.get(current.show.id, x.id).learned);
+      const ep = current.eps.find(e => e.id === chEl.dataset.ep);
+      const ch = ep.chapters[+chEl.dataset.ch];
+      const done = on && ch.items.every(x => BCE.store.get(current.file, x.id).learned);
       BCE.mascot.react(done ? "chapter" : on ? "learned" : "unlearned", $(".walker .onyx"));
       return;
     }
+
+    const say = t.closest("[data-say]");
+    if (say && current) {
+      const it = current.itemMap[say.dataset.id];
+      if (it && BCE.speech.speak(it[say.dataset.say], say)) BCE.mascot.animate("listen", $(".walker .onyx"));
+      return;
+    }
+
+    const speed = t.closest("[data-speed]");
+    if (speed) {
+      const on = speed.getAttribute("aria-pressed") !== "true";
+      speed.setAttribute("aria-pressed", on ? "true" : "false");
+      BCE.store.pref("slowSpeech", on);
+      BCE.caption(on ? "[朗讀速度：慢速]" : "[朗讀速度：一般]");
+      return;
+    }
+
+    const focus = t.closest("[data-focus]");
+    if (focus && focus.dataset.focus) BCE.focusItem = focus.dataset.focus;
 
     const open = t.closest("[data-open-note]");
     if (open) {
@@ -414,7 +546,7 @@ window.BCE = window.BCE || {};
     const clear = t.closest("[data-clear-note]");
     if (clear) {
       const item = clear.closest(".nb-item");
-      BCE.store.setNote(clear.dataset.noteShow, clear.dataset.clearNote, "");
+      BCE.store.setNote(clear.dataset.noteFile, clear.dataset.clearNote, "");
       item.remove();
       BCE.caption("[筆記已刪除]");
       return;
@@ -455,7 +587,7 @@ window.BCE = window.BCE || {};
   document.addEventListener("input", e => {
     const ta = e.target.closest("textarea[data-note]");
     if (ta) {
-      const showId = ta.dataset.noteShow || (current && current.show.id);
+      const showId = ta.dataset.noteFile || (current && current.file);
       const state = ta.parentElement.querySelector(".save-state") || ta.closest(".nb-item")?.querySelector(".save-state");
       if (state) state.textContent = "儲存中…";
       clearTimeout(saveTimers.get(ta));

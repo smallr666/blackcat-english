@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>BlackCat English｜看劇學道地英文</title>
+  <meta name="description" content="照 Netflix 影集時間軸學英文：單字與詞彙語塊兩種模式，筆記自動保存。">
+  <meta name="theme-color" content="#ECEEE9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0F1B18" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/img/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#/"><span class="brand-mark"></span><span lang="en">BlackCat English</span><small>看劇學英文</small></a>
+    <nav class="nav" aria-label="主選單">
+      <a href="#/">片單</a>
+      <a href="#/notes">筆記本</a>
+      <button type="button" class="theme-btn" data-theme-toggle aria-label="切換深淺色">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.5v11a5.5 5.5 0 0 1 0-11Z"/></svg>
+      </button>
+    </nav>
+  </header>
+
+  <main id="app" tabindex="-1"></main>
+
+  <footer class="site-footer">
+    <p>BlackCat English 是個人英語學習筆記網站，與 Netflix 及各影集權利人沒有任何關聯。影集名稱屬原權利人所有，頁面中的台詞僅為學習目的之單句簡短引用。</p>
+    <p>你的筆記與學習進度只存在你自己的瀏覽器裡，不會上傳到任何伺服器。</p>
+  </footer>
+
+  <div id="caption" class="caption" role="status" aria-live="polite"></div>
+
+  <script src="assets/js/store.js"></script>
+  <script src="assets/js/mascot.js"></script>
+  <script src="assets/js/app.js"></script>
+  <script src="data/catalog.js"></script>
+</body>
+</html>
